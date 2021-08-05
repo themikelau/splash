@@ -670,7 +670,7 @@ subroutine plotstep(ipos,istep,istepsonpage,irender_nomulti,icontour_nomulti,ive
                                iploterrbars,ilocerrbars,ismooth_particle_plots,mstari
  use settings_page,      only:nacross,ndown,interactive,iaxis,usesquarexy,yscalealt,labelyalt, &
                                charheight,iPlotTitles,vpostitle,hpostitle,fjusttitle,nstepsperpage
- use settings_render,    only:npix,ncontours,icolours,iColourBarStyle,icolour_particles,&
+ use settings_render,    only:npix,ncontours,icolours,icolours_doublerender,iColourBarStyle,icolour_particles,&
                                inormalise_interpolations,ifastrender,ilabelcont,double_rendering,&
                                projlabelformat,iapplyprojformat,exact_rendering
  use settings_vecplot,   only:npixvec,iplotpartvec
@@ -1943,7 +1943,7 @@ subroutine plotstep(ipos,istep,istepsonpage,irender_nomulti,icontour_nomulti,ive
 
                    !--if double rendering, plot first image in greyscale
                    if (gotcontours .and. double_rendering) then
-                      icolours_temp = 1
+                      icolours_temp = 1 !icolours_doublerender
                    else
                       icolours_temp = icolours
                    endif

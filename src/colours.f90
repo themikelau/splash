@@ -27,7 +27,7 @@
 module colours
  implicit none
  integer, parameter :: ncolourmax = 256
- integer, parameter :: ncolourschemes = 40
+ integer, parameter :: ncolourschemes = 42
  character(len=17), dimension(ncolourschemes), parameter :: schemename = &
     (/'greyscale        ', &
       'red              ', &
@@ -68,7 +68,9 @@ module colours
       'ocean            ', &
       'casa blue        ', &
       'green-brown      ', &
-      'Doppler shift    '/)
+      'Doppler shift    ', &
+      'solid blue       ', &
+      'solid red        '/)
  integer, parameter :: icustom = 100 ! number 100 is custom colour table
 !
 !--rgb colours of the colour table are stored in the array below
@@ -128,6 +130,20 @@ subroutine colour_set(icolourscheme)
 
  if (abs(icolourscheme) <= ncolourschemes) then
     select case(abs(icolourscheme))
+    case(41)
+       !--solid blue
+       nset = 2
+       lumarr(1:nset)  = (/0.000,1.000/)
+       redarr(1:nset)  = (/0.000,0.000/)
+       greenarr(1:nset)= (/0.000,0.000/)
+       bluearr(1:nset) = (/1.000,1.000/)
+    case(42)
+       !--solid red
+       nset = 2
+       lumarr(1:nset)  = (/0.000,1.000/)
+       redarr(1:nset)  = (/1.000,1.000/)
+       greenarr(1:nset)= (/0.000,0.000/)
+       bluearr(1:nset) = (/0.000,0.000/)
     case(1)
        !--greyscale
        nset =  2

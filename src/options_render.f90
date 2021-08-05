@@ -30,7 +30,7 @@ module settings_render
  use labels,    only:lenlabel
  use kernels,   only:ikernel
  implicit none
- integer :: ncontours,npix,icolours,iColourBarStyle,iColourBarPos
+ integer :: ncontours,npix,icolours,icolours_doublerender,iColourBarStyle,iColourBarPos
  logical :: iplotcont_nomulti,ilabelcont
  logical :: icolour_particles,inormalise_interpolations
  logical :: ifastrender,idensityweightedinterpolation
@@ -39,7 +39,7 @@ module settings_render
  integer :: iapplyprojformat
  character(len=120) :: rgbfile
 
- namelist /renderopts/ npix,icolours,ncontours,iplotcont_nomulti, &
+ namelist /renderopts/ npix,icolours,icolours_doublerender,ncontours,iplotcont_nomulti, &
    icolour_particles,ColourBarDisp,inormalise_interpolations, &
    ifastrender,idensityweightedinterpolation,iColourBarStyle, &
    iplotcolourbarlabel,ilabelcont,projlabelformat,iapplyprojformat, &
@@ -54,6 +54,7 @@ contains
 subroutine defaults_set_render
 
  icolours = 2               ! colour scheme to use
+ icolours_doublerender = 1
  npix = 0                 ! pixels in x direction for rendering
  iColourBarStyle = 1        ! whether or not to plot the colour bar and style
  iplotcont_nomulti = .false. ! plot contours
@@ -200,6 +201,7 @@ subroutine submenu_render(ichoose)
     endif
 
     if (double_rendering) then
+       call prompt('Enter colour scheme for background layer',icolours_doublerender)
        print "(a)",' Second render prompt is '//trim(print_logical(iplotcont_nomulti))
     else
        print "(a)",' Contour plotting prompt is '//trim(print_logical(iplotcont_nomulti))
