@@ -27,7 +27,7 @@
 module colours
  implicit none
  integer, parameter :: ncolourmax = 256
- integer, parameter :: ncolourschemes = 42
+ integer, parameter :: ncolourschemes = 43
  character(len=17), dimension(ncolourschemes), parameter :: schemename = &
     (/'greyscale        ', &
       'red              ', &
@@ -69,8 +69,9 @@ module colours
       'casa blue        ', &
       'green-brown      ', &
       'Doppler shift    ', &
+      'solid red        ', &
       'solid blue       ', &
-      'solid red        '/)
+      'solid green      '/)
  integer, parameter :: icustom = 100 ! number 100 is custom colour table
 !
 !--rgb colours of the colour table are stored in the array below
@@ -130,20 +131,27 @@ subroutine colour_set(icolourscheme)
 
  if (abs(icolourscheme) <= ncolourschemes) then
     select case(abs(icolourscheme))
-    case(41)
+    case(43)
        !--solid blue
-       nset = 2
-       lumarr(1:nset)  = (/0.000,1.000/)
-       redarr(1:nset)  = (/0.000,0.000/)
-       greenarr(1:nset)= (/0.000,0.000/)
-       bluearr(1:nset) = (/1.000,1.000/)
-    case(42)
+       nset = 4
+       lumarr(1:nset)  = (/0.000,0.010,0.500,0.990,1.000/)
+       redarr(1:nset)  = (/0.000,0.000,0.000,0.000,0.000/)
+       greenarr(1:nset)= (/0.000,0.000,0.000,0.000,0.000/)
+       bluearr(1:nset) = (/0.000,0.000,1.000,0.000,0.000/)
+    case(41)
        !--solid red
-       nset = 2
-       lumarr(1:nset)  = (/0.000,1.000/)
-       redarr(1:nset)  = (/1.000,1.000/)
-       greenarr(1:nset)= (/0.000,0.000/)
-       bluearr(1:nset) = (/0.000,0.000/)
+       nset = 5
+       lumarr(1:nset)  = (/0.000,0.010,0.500,0.990,1.000/)
+       redarr(1:nset)  = (/0.000,0.000,1.000,0.000,0.000/)
+       greenarr(1:nset)= (/0.000,0.000,0.000,0.000,0.000/)
+       bluearr(1:nset) = (/0.000,0.000,0.000,0.000,0.000/)
+    case(42)
+       !--solid green
+       nset = 5
+       lumarr(1:nset)  = (/0.000,0.010,0.500,0.990,1.000/)
+       redarr(1:nset)  = (/0.000,0.000,0.000,0.000,0.000/)
+       greenarr(1:nset)= (/0.000,0.000,1.000,0.000,0.000/)
+       bluearr(1:nset) = (/0.000,0.000,0.000,0.000,0.000/)
     case(1)
        !--greyscale
        nset =  2

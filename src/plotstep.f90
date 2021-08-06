@@ -1943,7 +1943,7 @@ subroutine plotstep(ipos,istep,istepsonpage,irender_nomulti,icontour_nomulti,ive
 
                    !--if double rendering, plot first image in greyscale
                    if (gotcontours .and. double_rendering) then
-                      icolours_temp = 1 !icolours_doublerender
+                      icolours_temp = icolours_doublerender
                    else
                       icolours_temp = icolours
                    endif

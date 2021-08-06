@@ -292,7 +292,7 @@ subroutine set_transparency(nx,ny,datpix,brightness,dmin,dmax)
     brightness = 1.  ! avoid divide by zero if max=min
  else
    !  brightness = max(min((datpix-dmin)/(dmax-dmin),1.0),0.)
-    brightness = 1 - abs(2.*datpix-dmin-dmax)/(dmax-dmin)
+    brightness = max(0., 1. - abs(2.*datpix-dmin-dmax)/(dmax-dmin))
  endif
 
 end subroutine set_transparency
