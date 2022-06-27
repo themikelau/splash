@@ -66,7 +66,7 @@ module sphNGread
  implicit none
  real(doub_prec) :: udist,umass,utime,umagfd
  real :: tfreefall,dtmax
- integer :: istartmhd,istartrt,nmhd,idivvcol,icurlvxcol,icurlvycol,icurlvzcol,iHIIcol,iHeIIcol,iHeIIIcol,ixioncol
+ integer :: istartmhd,istartrt,nmhd,idivvcol,idivvxcol,icurlvxcol,icurlvycol,icurlvzcol,iHIIcol,iHeIIcol,iHeIIIcol,ixioncol
  integer :: nhydroreal4,istart_extra_real4
  integer :: itempcol = 0
  integer :: nhydroarrays,nmhdarrays,ndustarrays,ndustlarge
@@ -796,11 +796,6 @@ subroutine extract_variables_from_header(tags,realarr,nreals,iverbose,debug,&
     enddo
     npartoftype(itypemap_sink_phantom) = nptmasstot  ! sink particles
     if (debug) print*,'DEBUG: npart of type sink ',itypemap_sink_phantom,' = ',nptmasstot
-    if (nblocks > 1) then
-       print "(a)",' setting ngas=npart for MPI code '
-       npartoftype(1)  = npart
-       npartoftype(2:) = 0
-    endif
     !
     !--if Phantom calculation uses the binary potential
     !  then read this as two point mass particles
@@ -1019,10 +1014,10 @@ subroutine guess_labels(ncolumns,iamvec,label,labelvec,istartmhd, &
  endif
 end subroutine guess_labels
 
-integer function assign_column(tag,iarr,ipos,ikind,imaxcolumnread,idustarr) result(icolumn)
+integer function assign_column(tag,iarr,ipos,ikind,imaxcolumnread,idustarr,ncolstep) result(icolumn)
  use labels, only:ih,irho,ix,ipmass
  character(len=lentag), intent(in) :: tag
- integer,               intent(in) :: iarr,ipos,ikind
+ integer,               intent(in) :: iarr,ipos,ikind,ncolstep
  integer,               intent(inout) :: imaxcolumnread
  integer,               intent(inout) :: idustarr
 
@@ -1063,6 +1058,10 @@ integer function assign_column(tag,iarr,ipos,ikind,imaxcolumnread,idustarr) resu
        icolumn = nhydroarrays + ndustarrays + 3
     case default
        icolumn = max(nhydroarrays + ndustarrays + nmhdarrays + 1,imaxcolumnread + 1)
+       if (icolumn > ncolstep) then
+          ! check for dustfrac not being present
+          if (idustarr == 0 .and. ndustarrays > 0) icolumn = nhydroarrays + 1
+       endif
        if (iarr==1) then
           if (ikind==4) then  ! real*4 array
              istart_extra_real4 = min(istart_extra_real4,icolumn)
@@ -1121,6 +1120,11 @@ integer function assign_column(tag,iarr,ipos,ikind,imaxcolumnread,idustarr) resu
        icolumn = imaxcolumnread + 1
     endif
  endif
+ if (icolumn < 1 .or. icolumn > ncolstep) then
+    print*,' ERROR in column assignment for '//trim(tag)
+    icolumn = ncolstep ! screw up last entry, but don't seg fault
+ endif
+
  imaxcolumnread = max(imaxcolumnread,icolumn)
 
 end function assign_column
@@ -1314,6 +1318,41 @@ subroutine check_iphase_matches_npartoftype(i1,i2,iphase,npartoftypei)
 
 end subroutine check_iphase_matches_npartoftype
 
+!------------------------------------------------------------
+! allocate and reallocate the iphase array as needed
+!------------------------------------------------------------
+subroutine allocate_iphase(iphase,nmax,phantomdump,gotbinary)
+ integer*1, allocatable, intent(inout) :: iphase(:)
+ integer, intent(in) :: nmax
+ logical, intent(in) :: phantomdump,gotbinary
+ integer*1, allocatable :: iphase_old(:)
+ integer :: ncopy
+
+ if (allocated(iphase)) then
+    iphase_old = iphase ! allocates memory for iphase_old as well
+    deallocate(iphase)
+ endif
+ allocate(iphase(nmax))
+
+ if (phantomdump) then
+    iphase(:) = 1
+ else
+    iphase(:) = 0
+ endif
+
+ if (gotbinary) then
+    iphase(nmax-1) = -3
+    iphase(nmax)   = -3
+ endif
+
+ if (allocated(iphase_old)) then
+    ncopy = min(size(iphase_old),size(iphase))
+    iphase(1:ncopy) = iphase_old(1:ncopy)
+    deallocate(iphase_old)
+ endif
+
+end subroutine allocate_iphase
+
 end module sphNGread
 
 !----------------------------------------------------------------------
@@ -1344,7 +1383,7 @@ subroutine read_data_sphNG(rootname,indexstart,iposn,nstepsread)
  use calcquantities, only:calc_quantities
  use asciiutils,     only:make_tags_unique
  use sphNGread
- use lightcurve,     only:get_temp_from_u,ionisation_fraction,get_opacity
+ use lightcurve_utils, only:get_temp_from_u,ionisation_fraction,get_opacity
  integer, intent(in)  :: indexstart,iposn
  integer, intent(out) :: nstepsread
  character(len=*), intent(in) :: rootname
@@ -1375,8 +1414,8 @@ subroutine read_data_sphNG(rootname,indexstart,iposn,nstepsread)
  real(sing_prec) :: r4
  real, dimension(:,:), allocatable :: dattemp2
  real, dimension(maxinblock) :: dummyreal
- real :: hfact,omega,Xfrac,Yfrac,xHIi,xHIIi,xHeIi,xHeIIi,xHeIIIi,nei,Tcut
- logical :: skip_corrupted_block_3,get_temperature,get_ionfrac
+ real :: hfact,omega,Xfrac,Yfrac,xHIi,xHIIi,xHeIi,xHeIIi,xHeIIIi,nei
+ logical :: skip_corrupted_block_3,get_temperature,get_ionfrac,need_to_allocate_iphase
  character(len=lentag) :: tagsreal(maxinblock), tagtmp
 
  integer, parameter :: splash_max_iversion = 1
@@ -1389,6 +1428,7 @@ subroutine read_data_sphNG(rootname,indexstart,iposn,nstepsread)
  iunit = 15
  ipmass = 4
  idivvcol = 0
+ idivvxcol = 0
  icurlvxcol = 0
  icurlvycol = 0
  icurlvzcol = 0
@@ -1675,7 +1715,7 @@ subroutine read_data_sphNG(rootname,indexstart,iposn,nstepsread)
 
        !--force read of h and rho if dustfrac is required
        if (ndustarrays > 0 .and. any(required(nhydroarrays+1:nhydroarrays+ndustarrays))) then
-          !print*,' dustfrac in columns ',nhydroarrays+1,nhydroarrays+ndustarrays,' required = ',required(nhydroarrays+1)
+          if (debug) print*,' dustfrac in columns ',nhydroarrays+1,nhydroarrays+ndustarrays,' required = ',required(nhydroarrays+1)
           required(irho) = .true.
           required(ih) = .true.
        endif
@@ -1686,7 +1726,7 @@ subroutine read_data_sphNG(rootname,indexstart,iposn,nstepsread)
           ncolstep = ncolstep + 1
           inquire(file=trim(dumpfile)//'.divv',exist=iexist)
           if (iexist) then
-             idivvcol   = ncolstep + 1
+             idivvxcol   = ncolstep + 1
              icurlvxcol = ncolstep + 2
              icurlvycol = ncolstep + 3
              icurlvzcol = ncolstep + 4
@@ -1723,6 +1763,7 @@ subroutine read_data_sphNG(rootname,indexstart,iposn,nstepsread)
        enddo
     endif
 
+    need_to_allocate_iphase = (npart_max > maxpart) .or. .not.allocated(iphase)
     if (npart_max > maxpart .or. j > maxstep .or. ncolumns > maxcol) then
        if (lowmemorymode) then
           call alloc(max(npart_max+2,maxpart),j,ilastrequired)
@@ -1752,20 +1793,11 @@ subroutine read_data_sphNG(rootname,indexstart,iposn,nstepsread)
        !--stop reading file here if no columns required
        !
        if (ilastrequired==0) exit over_MPIblocks
-
-       if (allocated(iphase)) deallocate(iphase)
-       allocate(iphase(npart_max+2))
-       if (phantomdump) then
-          iphase(:) = 1
-       else
-          iphase(:) = 0
-       endif
-
-       if (gotbinary) then
-          iphase(npart-1) = -3
-          iphase(npart)   = -3
-       endif
     endif
+!
+!--allocate memory for iphase array now that gotbinary is known
+!
+    if (need_to_allocate_iphase) call allocate_iphase(iphase,max(npart_max+2,maxpart),phantomdump,gotbinary)
 !
 !--Arrays
 !
@@ -1857,6 +1889,7 @@ subroutine read_data_sphNG(rootname,indexstart,iposn,nstepsread)
                 print "(a)",'ERROR: not enough arrays written for sink particles in phantom dump'
                 nskip = nreal(iarr)
              else
+                if (debug) print*,'DEBUG: denoting ',npart,'->',npart+isize(iarr),' as sink particles'
                 iphase(npart+1:npart+isize(iarr)) = -3
                 ilocvx = nreal(iarr)-2 ! velocity is always last 3 numbers for phantom sinks
                 if (doubleprec) then
@@ -1995,7 +2028,7 @@ subroutine read_data_sphNG(rootname,indexstart,iposn,nstepsread)
           do i=1,nreal(iarr)
              tagtmp = ''
              if (tagged) read(iunit,end=33,iostat=ierr) tagtmp
-             icolumn = assign_column(tagtmp,iarr,i,6,imaxcolumnread,idustarr)
+             icolumn = assign_column(tagtmp,iarr,i,6,imaxcolumnread,idustarr,ncolstep)
              if (tagged) tagarr(icolumn) = tagtmp
              if (debug)  print*,' reading real to col:',icolumn,' tag = ',trim(tagtmp), ' required = ',required(icolumn)
              if (required(icolumn)) then
@@ -2050,7 +2083,7 @@ subroutine read_data_sphNG(rootname,indexstart,iposn,nstepsread)
           do i=1,nreal4(iarr)
              tagtmp = ''
              if (tagged) read(iunit,end=33,iostat=ierr) tagtmp
-             icolumn = assign_column(tagtmp,iarr,i,4,imaxcolumnread,idustarr)
+             icolumn = assign_column(tagtmp,iarr,i,4,imaxcolumnread,idustarr,ncolstep)
              if (debug) print*,'reading real4 to col:',icolumn,' tag = ',trim(tagtmp),' required = ',required(icolumn)
              if (tagged) tagarr(icolumn) = tagtmp
 
@@ -2077,7 +2110,7 @@ subroutine read_data_sphNG(rootname,indexstart,iposn,nstepsread)
           do i=1,nreal8(iarr)
              tagtmp = ''
              if (tagged) read(iunit,end=33,iostat=ierr) tagtmp
-             icolumn = assign_column(tagtmp,iarr,i,8,imaxcolumnread,idustarr)
+             icolumn = assign_column(tagtmp,iarr,i,8,imaxcolumnread,idustarr,ncolstep)
              if (debug) print*,'reading real8 to col:',icolumn,' tag = ',trim(tagtmp),' required = ',required(icolumn)
              if (tagged) tagarr(icolumn) = tagtmp
              if (required(icolumn)) then
@@ -2108,13 +2141,13 @@ subroutine read_data_sphNG(rootname,indexstart,iposn,nstepsread)
  !
  !--read .divv file for phantom dumps
  !
- if (phantomdump .and. idivvcol /= 0 .and. any(required(idivvcol:icurlvzcol))) then
+ if (phantomdump .and. idivvxcol /= 0 .and. any(required(idivvxcol:icurlvzcol))) then
     print "(a)",' reading divv from '//trim(dumpfile)//'.divv'
     open(unit=66,file=trim(dumpfile)//'.divv',form='unformatted',status='old',iostat=ierr)
     if (ierr /= 0) then
        print "(a)",' ERROR opening '//trim(dumpfile)//'.divv'
     else
-       read(66,iostat=ierr) dat(1:ntotal,idivvcol,j)
+       read(66,iostat=ierr) dat(1:ntotal,idivvxcol,j)
        if (ierr /= 0) print "(a)",' WARNING: ERRORS reading divv from file'
        if (any(required(icurlvxcol:icurlvzcol))) then
           read(66,iostat=ierr) dat(1:ntotal,icurlvxcol,j)
@@ -2497,6 +2530,10 @@ subroutine set_labels_sphNG
           idivvcol = i
           units(i) = 1./utime
           unitslabel(i) = ' [1/s]'
+       case('divvx')
+          idivvxcol = i
+          units(i) = 1./utime
+          unitslabel(i) = ' [1/s]'
        case('poten')
           units(i) = (udist/utime)**2
           unitslabel(i) = ' [erg/g]'
@@ -2601,6 +2638,7 @@ subroutine set_labels_sphNG
  if (ih > 0) label(ih) = 'h       '
  if (ipmass > 0) label(ipmass) = 'particle mass'
  if (idivB > 0) label(idivB) = 'div B'
+ if (idivvxcol > 0) label(idivvxcol) = 'div vx'
  if (idivvcol > 0) label(idivvcol) = 'div v'
  if (itemp > 0) then
     label(itemp) = 'temperature'
