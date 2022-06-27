@@ -66,7 +66,7 @@ module sphNGread
  implicit none
  real(doub_prec) :: udist,umass,utime,umagfd
  real :: tfreefall,dtmax
- integer :: istartmhd,istartrt,nmhd,idivvcol,icurlvxcol,icurlvycol,icurlvzcol,iHIIcol,iHeIIcol,iHeIIIcol
+ integer :: istartmhd,istartrt,nmhd,idivvcol,icurlvxcol,icurlvycol,icurlvzcol,iHIIcol,iHeIIcol,iHeIIIcol,ixioncol
  integer :: nhydroreal4,istart_extra_real4
  integer :: itempcol = 0
  integer :: nhydroarrays,nmhdarrays,ndustarrays,ndustlarge
@@ -1395,6 +1395,7 @@ subroutine read_data_sphNG(rootname,indexstart,iposn,nstepsread)
  iHIIcol = 0
  iHeIIcol = 0
  iHeIIIcol = 0
+ ixioncol = 0
  nhydroreal4 = 0
  umass = 1.d0
  utime = 1.d0
@@ -1702,7 +1703,8 @@ subroutine read_data_sphNG(rootname,indexstart,iposn,nstepsread)
              iHIIcol   = ncolstep + 1
              iHeIIcol  = ncolstep + 2
              iHeIIIcol = ncolstep + 3
-             ncolstep  = ncolstep + 3
+             ixioncol  = ncolstep + 4
+             ncolstep  = ncolstep + 4
           endif
        endif
     endif
@@ -2139,14 +2141,15 @@ subroutine read_data_sphNG(rootname,indexstart,iposn,nstepsread)
     print*,'X,Y,Z = ',Xfrac,Yfrac,1.-Xfrac-Yfrac
     dat(1:ntotal,ikappa,j) = get_opacity(dat(1:ntotal,idenscol,j)*unit_dens,dat(1:ntotal,itempcol,j)*1.d0,Xfrac,Yfrac)
  endif
- if (get_ionfrac .and. iHIIcol > 0 .and. iHeIIcol > 0 .and. iHeIIIcol > 0&
-     .and. any(required(iHIIcol:iHeIIIcol))) then
+ if (get_ionfrac .and. iHIIcol > 0 .and. iHeIIcol > 0 .and. iHeIIIcol > 0 .and. ixioncol > 0&
+     .and. any(required(iHIIcol:ixioncol))) then
     do i=1,ntotal
        call ionisation_fraction(real(dat(i,idenscol,j)*unit_dens),dat(i,itemp,j),&
                                 Xfrac,Yfrac,xHIi,xHIIi,xHeIi,xHeIIi,xHeIIIi,nei)
        dat(i,iHIIcol,j)=xHIIi
        dat(i,iHeIIcol,j)=xHeIIi
        dat(i,iHeIIIcol,j)=xHeIIIi
+       dat(i,ixioncol,j)=xHeIIIi+xHeIIi+xHIIi
     enddo
  endif
 
@@ -2607,6 +2610,7 @@ subroutine set_labels_sphNG
  if (iHIIcol > 0) label(iHIIcol) = 'HII fraction'
  if (iHeIIcol > 0) label(iHeIIcol) = 'HeII fraction'
  if (iHeIIIcol > 0) label(iHeIIIcol) = 'HeIII fraction'
+ if (ixioncol > 0) label(ixioncol) = 'xion sum'
  if (icurlvxcol > 0 .and. icurlvycol > 0 .and. icurlvzcol > 0) then
     call make_vector_label('curl v',icurlvxcol,ndimV,iamvec,labelvec,label,labelcoord(:,1))
  endif
