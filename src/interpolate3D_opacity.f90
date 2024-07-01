@@ -78,7 +78,7 @@ contains
 
 subroutine interp3D_proj_opacity(x,y,z,pmass,npmass,hh,weight,dat,zorig,itype,npart, &
      xmin,ymin,datsmooth,tausmooth,npixx,npixy,pixwidthx,pixwidthy,zobserver,dscreenfromobserver, &
-     rkappa,zcut,iverbose,exact_rendering,datv,datvpix)
+     rkappa,zcut,iverbose,exact_rendering,datv,datvpix,badpix)
 
  real, parameter :: pi=4.*atan(1.)
  integer, intent(in) :: npart,npixx,npixy,npmass,iverbose
@@ -91,6 +91,8 @@ subroutine interp3D_proj_opacity(x,y,z,pmass,npmass,hh,weight,dat,zorig,itype,np
  ! optional arguments for vector opacity rendering
  real, dimension(:,:),   intent(in),  optional :: datv
  real, dimension(:,:,:), intent(out), optional :: datvpix
+ ! optional argument for checking unresolved pixels in the photosphere
+ real, dimension(npixx,npixy), intent(out), optional :: badpix
 
  integer :: i,ipix,jpix,ipixmin,ipixmax,jpixmin,jpixmax,nused,nsink
  integer, dimension(npart) :: iorder
@@ -116,6 +118,7 @@ subroutine interp3D_proj_opacity(x,y,z,pmass,npmass,hh,weight,dat,zorig,itype,np
  term = 0.
  tausmooth = 0.
  if (present(datvpix)) datvpix = 0.
+ if (present(badpix)) badpix = 0.
  if (pixwidthx <= 0. .or. pixwidthy <= 0) then
     if (iverbose >= -1) print "(1x,a)",'ERROR: pixel width <= 0'
     return
@@ -144,6 +147,7 @@ subroutine interp3D_proj_opacity(x,y,z,pmass,npmass,hh,weight,dat,zorig,itype,np
  !--whether to raytrace backwards from observer, or forwards to observer
  !
  backwards = .false.
+ if (present(badpix)) backwards = .true.
 
  !
  !--setup kernel table if not already set
@@ -199,6 +203,10 @@ subroutine interp3D_proj_opacity(x,y,z,pmass,npmass,hh,weight,dat,zorig,itype,np
  nok = 0
  hminall = huge(hminall)
  hmin = 0.5*max(pixwidthx,pixwidthy)
+ if (iverbose >= 0) then
+    write(*,"(a,45x,a)") ' 0% ',' 100%'
+    write(*,"(1x,a)",advance='no') '|'
+ endif
 
 !!$omp parallel default(none) &
 !!$omp shared(hh,z,x,y,zorig,pmass,dat,itype,datsmooth,npmass,npart) &
@@ -221,6 +229,13 @@ subroutine interp3D_proj_opacity(x,y,z,pmass,npmass,hh,weight,dat,zorig,itype,np
     !--skip particles with itype < 0
     !
     if (itype(i) < 0) cycle over_particles
+
+    !
+    !--progress bar
+    !
+    if (iverbose >= 0 .and. mod(ipart,npart/50)==0) then
+       write(*,"('=')",advance='no')
+    endif
 
     !
     !--skip particles with weight < 0
@@ -335,63 +350,76 @@ subroutine interp3D_proj_opacity(x,y,z,pmass,npmass,hh,weight,dat,zorig,itype,np
        !--loop over pixels, adding the contribution from this particle
        !
        do jpix = jpixmin,jpixmax
-           ypix = yminpix + jpix*pixwidthy
-           dy = ypix - yi
-           dy2 = dy*dy*hi21
-           do ipix = ipixmin,ipixmax
-              q2 = dx2i(ipix) + dy2 ! dx2 pre-calculated; dy2 pre-multiplied by hi21
+          ypix = yminpix + jpix*pixwidthy
+          dy = ypix - yi
+          dy2 = dy*dy*hi21
+          do ipix = ipixmin,ipixmax
+             q2 = dx2i(ipix) + dy2 ! dx2 pre-calculated; dy2 pre-multiplied by hi21
 
-              if (exact_rendering .and. ipixmax-ipixmin <= 10 .and. q2 < radkernel2 + 3.*pixwidthx*pixwidthy*hi21) then
-                 xpixi = xminpix + ipix*pixwidthx
+             if (exact_rendering .and. ipixmax-ipixmin <= 10 .and. q2 < radkernel2 + 3.*pixwidthx*pixwidthy*hi21) then
+                xpixi = xminpix + ipix*pixwidthx
 
-                 ! Contribution of the cell walls in the xy-plane
-                 pixint = 2.*wallint(0.5*pixwidthz,xi,yi,xpixi,ypix,pixwidthx,pixwidthy,hi)
-                 !pixint = pixint + wallint(0.5*pixwidthz,xi,yi,xpixi,ypix,pixwidthx,pixwidthy,hi)
+                ! Contribution of the cell walls in the xy-plane
+                pixint = 2.*wallint(0.5*pixwidthz,xi,yi,xpixi,ypix,pixwidthx,pixwidthy,hi)
+                !pixint = pixint + wallint(0.5*pixwidthz,xi,yi,xpixi,ypix,pixwidthx,pixwidthy,hi)
 
-                 ! Contribution of the cell walls in the xz-plane
-                 pixint = pixint + wallint(ypix-yi+0.5*pixwidthy,xi,zi,xpixi,zpix,pixwidthx,pixwidthz,hi)
-                 pixint = pixint + wallint(yi-ypix+0.5*pixwidthy,xi,zi,xpixi,zpix,pixwidthx,pixwidthz,hi)
+                ! Contribution of the cell walls in the xz-plane
+                pixint = pixint + wallint(ypix-yi+0.5*pixwidthy,xi,zi,xpixi,zpix,pixwidthx,pixwidthz,hi)
+                pixint = pixint + wallint(yi-ypix+0.5*pixwidthy,xi,zi,xpixi,zpix,pixwidthx,pixwidthz,hi)
 
-                 ! Contribution of the cell walls in the yz-plane
-                 pixint = pixint + wallint(xpixi-xi+0.5*pixwidthx,zi,yi,zpix,ypix,pixwidthz,pixwidthy,hi)
-                 pixint = pixint + wallint(xi-xpixi+0.5*pixwidthx,zi,yi,zpix,ypix,pixwidthz,pixwidthy,hi)
+                ! Contribution of the cell walls in the yz-plane
+                pixint = pixint + wallint(xpixi-xi+0.5*pixwidthx,zi,yi,zpix,ypix,pixwidthz,pixwidthy,hi)
+                pixint = pixint + wallint(xi-xpixi+0.5*pixwidthx,zi,yi,zpix,ypix,pixwidthz,pixwidthy,hi)
 
-                 wab = pixint*dfac
+                wab = pixint*dfac
 
-                 tau = wab*term
-                 fopacity = 1. - exp(-tau)
-                 !
-                 !--render, obscuring previously drawn pixels by relevant amount
-                 !  also calculate total optical depth for each pixel
-                 !
-                 datsmooth(ipix,jpix) = (1.-fopacity)*datsmooth(ipix,jpix) + fopacity*dati
-                 tausmooth(ipix,jpix) = tausmooth(ipix,jpix) + tau
-              else
-                 !
-                 !--SPH kernel - integral through cubic spline
-                 !  interpolate from a pre-calculated table
-                 !
-                 if (q2 < radkernel2) then
-                    wab = wfromtable(q2)
+                tau = wab*term
+                tausmooth(ipix,jpix) = tausmooth(ipix,jpix) + tau
+                !
+                !--render, obscuring previously drawn pixels by relevant amount
+                !  also calculate total optical depth for each pixel
+                !
+                if (backwards) then
+                   fopacity = exp(-tausmooth(ipix,jpix))*tau
+                   datsmooth(ipix,jpix) = datsmooth(ipix,jpix) + fopacity*dati
+                   if (present(datv)) datvpix(:,ipix,jpix) = datvpix(:,ipix,jpix) + fopacity*datvi(:)
+                   if (present(badpix)) then
+                      if (tausmooth(ipix,jpix) < 1. .and. tau >= 0.33) badpix(ipix,jpix) = 1
+                   endif
+                else
+                   fopacity = 1. - exp(-tau)
+                   datsmooth(ipix,jpix) = (1.-fopacity)*datsmooth(ipix,jpix) + fopacity*dati
+                   if (present(datv)) datvpix(:,ipix,jpix) = (1.-fopacity)*datvpix(:,ipix,jpix) + fopacity*datvi(:)
+                endif
+             else
+                !
+                !--SPH kernel - integral through cubic spline
+                !  interpolate from a pre-calculated table
+                !
+                if (q2 < radkernel2) then
+                   wab = wfromtable(q2)
 
-                    tau = wab*term
-                    tausmooth(ipix,jpix) = tausmooth(ipix,jpix) + tau
-                    !
-                    !--render, obscuring previously drawn pixels by relevant amount
-                    !  also calculate total optical depth for each pixel
-                    !
-                    if (backwards) then
-                       fopacity = exp(-tausmooth(ipix,jpix))*tau
-                       datsmooth(ipix,jpix) = datsmooth(ipix,jpix) + fopacity*dati
-                       if (present(datv)) datvpix(:,ipix,jpix) = datvpix(:,ipix,jpix) + fopacity*datvi(:)
-                    else
-                       fopacity = 1. - exp(-tau)
-                       datsmooth(ipix,jpix) = (1.-fopacity)*datsmooth(ipix,jpix) + fopacity*dati
-                       if (present(datv)) datvpix(:,ipix,jpix) = (1.-fopacity)*datvpix(:,ipix,jpix) + fopacity*datvi(:)
-                    endif
-                 endif
-              endif
-           enddo
+                   tau = wab*term
+                   tausmooth(ipix,jpix) = tausmooth(ipix,jpix) + tau
+                   !
+                   !--render, obscuring previously drawn pixels by relevant amount
+                   !  also calculate total optical depth for each pixel
+                   !
+                   if (backwards) then
+                      fopacity = exp(-tausmooth(ipix,jpix))*tau
+                      datsmooth(ipix,jpix) = datsmooth(ipix,jpix) + fopacity*dati
+                      if (present(datv)) datvpix(:,ipix,jpix) = datvpix(:,ipix,jpix) + fopacity*datvi(:)
+                      if (present(badpix)) then
+                         if (tausmooth(ipix,jpix) < 1. .and. tau >= 0.33) badpix(ipix,jpix) = 1
+                      endif
+                   else
+                      fopacity = 1. - exp(-tau)
+                      datsmooth(ipix,jpix) = (1.-fopacity)*datsmooth(ipix,jpix) + fopacity*dati
+                      if (present(datv)) datvpix(:,ipix,jpix) = (1.-fopacity)*datvpix(:,ipix,jpix) + fopacity*datvi(:)
+                   endif
+                endif
+             endif
+          enddo
        enddo
 
     endif particle_within_zcut
@@ -402,6 +430,7 @@ subroutine interp3D_proj_opacity(x,y,z,pmass,npmass,hh,weight,dat,zorig,itype,np
 !
 !--get ending CPU time
 !
+ if (iverbose >= 0) print "('|',/)"   ! end the progress bar
  if (nsink > 99) then
     if (iverbose >= 0) print*,'rendered ',nsink,' sink particles'
  elseif (nsink > 0) then

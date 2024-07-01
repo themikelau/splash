@@ -15,7 +15,7 @@
 !  a) You must cause the modified files to carry prominent notices
 !     stating that you changed the files and the date of any change.
 !
-!  Copyright (C) 2005-2021 Daniel Price. All rights reserved.
+!  Copyright (C) 2005-2023 Daniel Price. All rights reserved.
 !  Contact: daniel.price@monash.edu
 !
 !-----------------------------------------------------------------
@@ -147,7 +147,7 @@ subroutine write_sphdump(time,gamma,dat,npart,ntypes,npartoftype,masstype,itype,
           write(fmtstringlab,"(i10,a)") ncols,'(a15,1x),a'
        endif
     endif
-    fmtstring2 = '('//trim(adjustl(fmtstring))//',i1)'
+    fmtstring2 = '('//trim(adjustl(fmtstring))//',i0)'
     fmtstring = '('//trim(adjustl(fmtstring))//')'
     if (use_csv) then
        fmtstringlab = '('//trim(adjustl(fmtstringlab))//')'
@@ -333,7 +333,7 @@ subroutine write_sphdump(time,gamma,dat,npart,ntypes,npartoftype,masstype,itype,
     call write_sphdata_phantom(time,gamma,dat,ndim,npart,ntypes,npartoftype,&
                                masstype,ncolumns,udist,utime,umass,umagfd,&
                                labeltype,label,ix,ih,ivx,iBfirst,&
-                               ipmass,iutherm,filename,0.)
+                               ipmass,irho,iutherm,filename,0.)
  case('gadget')
     call write_sphdata_gadget(time,dat,itype,npart,ntypes,npartoftype,&
                                masstype,ncolumns,filename)

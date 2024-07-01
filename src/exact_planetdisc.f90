@@ -39,28 +39,37 @@ module planetdisc
 
 contains
 
-subroutine exact_planetdisc(iplot,ispiral,time,HonR,rplanet,q,phi0,narms,params,rplot,yplot,ierr)
- use plotlib, only:plot_line
+subroutine exact_planetdisc(iplot,ispiral,use_clockwise,time,HonR,rplanet,q,phi0,narms,params,rplot,yplot,ierr)
+ use plotlib,  only:plot_line
+ use geometry, only:set_planet_wake,planet_wake_t
  integer, intent(in)  :: iplot,ispiral,narms
+ logical, intent(in)  :: use_clockwise
  integer, intent(out) :: ierr
  real,    intent(in)  :: time, HonR, rplanet, q, phi0, params(:,:)
  real, dimension(:),           intent(inout) :: rplot
  real, dimension(size(rplot)), intent(out)   :: yplot
  integer :: npts,iend,istart
  integer :: i,j,norbits,iarm
- logical :: use_ogilvie
+ logical :: use_ogilvie,use_nonlin
  real :: r,rr,phase,dr,phi,rmin,rmax,phimin,phimax,dphi,coeff(maxcoeff)
  real, parameter :: pi = 4.*atan(1.)
+ real :: p,t0,dt,dir
 
- real :: p
- p =1.5
-
+ p = 0.5
+ t0 = 0.
  ierr = 0
  npts = size(rplot)
  norbits = int(time/(2.*pi))
  phase = phi0*pi/180. ! convert to radians
  !if (time > 0.) phase = phase + (time - (2.*pi*norbits))
  use_ogilvie = .false.
+ use_nonlin = .false.
+ if (use_clockwise) then
+    dir = -1.
+ else
+    dir = 1.
+ endif
+
  select case(ispiral)
  case(2)
     print "(a,i2)",' Spiral arm fitting formula r = sum(a_i*phi^i,i=1,4) narms =',narms
@@ -69,6 +78,8 @@ subroutine exact_planetdisc(iplot,ispiral,time,HonR,rplanet,q,phi0,narms,params,
     use_ogilvie = (abs(q - 0.5) < epsilon(q))
     if (use_ogilvie) then
        print "(a)",' Using Ogilvie & Lubow (2002) exact solution'
+    elseif (use_nonlin) then
+       print "(a)",' Using Rafikov (2002) exact solution for power-law disc + CR21 non-linear corrections'
     else
        print "(a)",' Using Rafikov (2002) exact solution for power-law disc'
     endif
@@ -133,6 +144,10 @@ subroutine exact_planetdisc(iplot,ispiral,time,HonR,rplanet,q,phi0,narms,params,
           !print*,' GOT RMIN = ',rmin,phimin,phimax, 'COEFFS=',coeff
        endif
        ! outside planet
+       if (use_nonlin) then
+          call set_planet_wake(rplanet,phase,p,q,HonR)
+          t0 = 0. !1.89*3. !mp/mthermal
+       endif
        do i=1,npts
           select case(ispiral)
           case(2)
@@ -165,8 +180,12 @@ subroutine exact_planetdisc(iplot,ispiral,time,HonR,rplanet,q,phi0,narms,params,
                       ((rr**(q-0.5))/(q-0.5) - (rr**(q+1.))/(q+1.) - 3./((2.*q-1.)*(q+1.)))
 !                 phi = phase-sign(1.,r-rplanet)*(1./(HonR))*(((r/rplanet)**(1.+q)) &
 !                      *(1./(1.+q)-(1./(1.-p+q))*(r/rplanet)**(-p))-1./(1.+q)+1./(1.-p+q))
+                if (use_nonlin) then
+                   dt = planet_wake_t(r) - t0
+                   if (dt > 0.) phi = phi + sign(1.,r-rplanet)*HonR*sqrt(dt)
+                endif
              endif
-             rplot(i) = r*cos(phi)
+             rplot(i) = dir*r*cos(phi)
              yplot(i) = r*sin(phi)
           end select
           !print*,'r, phi = ',r,phi,' : x, y = ',rplot(i),yplot(i)

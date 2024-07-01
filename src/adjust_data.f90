@@ -15,7 +15,7 @@
 !  a) You must cause the modified files to carry prominent notices
 !     stating that you changed the files and the date of any change.
 !
-!  Copyright (C) 2005-2018 Daniel Price. All rights reserved.
+!  Copyright (C) 2005-2022 Daniel Price. All rights reserved.
 !  Contact: daniel.price@monash.edu
 !
 !-----------------------------------------------------------------
@@ -59,19 +59,23 @@ end subroutine get_adjust_data_dependencies
 !
 !----------------------------------------------------
 subroutine adjust_data_codeunits
- use system_utils,    only:renvironment,envlist,ienvironment,lenvironment,ienvlist
+ use system_utils,    only:renvironment,envlist,ienvironment,lenvironment,ienvlist,&
+                           ienvstring,get_environment_or_flag,get_command_flag
  use labels,          only:ih,ix,ivx,get_sink_type,ipmass,idustfrac,irho,labeltype,label
- use settings_data,   only:ncolumns,ndimV,ndim,debugmode,ntypes,iverbose,UseFakeDustParticles,UseFastRender,icoords
+ use settings_data,   only:ncolumns,ndimV,ndim,ntypes,iverbose,UseFakeDustParticles,&
+                           UseFastRender,icoords,track_string
  use particle_data,   only:dat,npartoftype,iamtype
  use filenames,       only:ifileopen,nstepsinfile
  use geometry,        only:labelcoord
- use part_utils,      only:locate_first_two_of_type,locate_nth_particle_of_type,get_binary,got_particles_of_type
+ use part_utils,      only:locate_first_two_of_type,locate_nth_particle_of_type,&
+                           locate_particle_from_string,get_binary,got_particles_of_type
  real :: hmin,dphi,domega,period
- real, dimension(3) :: vsink,xyzsink,x0,v0
+ real, dimension(3) :: x0,v0
  integer :: i,j,ierr,isink,isinkpos,itype,nlist,nerr
- integer :: ntot,isink1,isink2,isinklist(2)
- logical :: centreonsink,got_sinks,no_dust_particles
+ integer :: ntot,isink1,isink2,isinklist(2),iorigin
+ logical :: centreonsink,dontCentreVelocity,got_sinks,no_dust_particles
  character(len=20), dimension(3) :: list
+ character(len=30) :: string
 
  !
  !--environment variable setting to enforce a minimum h
@@ -88,7 +92,7 @@ subroutine adjust_data_codeunits
        where (dat(:,ih,:) < hmin .and. dat(:,ih,:) > 0.)
           dat(:,ih,:) = hmin
        end where
-       print "(a)",' >> Recommended to switch accelerated rendering ON'
+       print "(a)",' >> Switching accelerated rendering ON'
        UseFastRender = .true.
     endif
  endif
@@ -140,12 +144,13 @@ subroutine adjust_data_codeunits
     !--can specify either just "true" for sink #1, or specify a number for a particular sink
     centreonsink = lenvironment('SPLASH_CENTRE_ON_SINK') .or. lenvironment('SPLASH_CENTER_ON_SINK')
     isink        = max(ienvironment('SPLASH_CENTRE_ON_SINK'),ienvironment('SPLASH_CENTER_ON_SINK'))
-    if (isink > 0 .or. centreonsink) then
+    dontCentreVelocity = lenvironment('SPLASH_DONTCENTREVEL') .or. lenvironment('SPLASH_DONTCENTERVEL')
+    if (isink > 0 .or. centreonsink .and. all(ix(1:ndim) > 0)) then
        if (isink==0) isink = 1
        itype = get_sink_type(ntypes)
        if (itype > 0) then
           if (all(npartoftype(itype,:) < isink)) then
-             print "(a,i10,a)",' ERROR: SPLASH_CENTRE_ON_SINK = ',isink,' but not enough sink particles'
+             print "(a,i10,a)",' ERROR: --sink = ',isink,' but not enough sink particles'
           else
              if (iverbose >= 1) print*
              if (isink < 10) then
@@ -153,24 +158,10 @@ subroutine adjust_data_codeunits
              else
                 print "(a,i3,a)",' :: CENTREING ON SINK ',isink,' from --sink flag'
              endif
+             if (dontCentreVelocity) print "(a)",' :: NOT CENTREING VELOCITY'
              do j=1,nstepsinfile(ifileopen)
                 call locate_nth_particle_of_type(isink,isinkpos,itype,iamtype(:,j),npartoftype(:,j),ntot)
-                if (isinkpos==0) then
-                   print "(a)",' ERROR: could not locate sink particle in dat array'
-                else
-                   if (debugmode) print*,' SINK POSITION = ',isinkpos,npartoftype(1:itype,j)
-                   !--make positions relative to sink particle
-                   xyzsink(1:ndim) = dat(isinkpos,ix(1:ndim),j)
-                   if (iverbose >= 1) print "(a,3(1x,es10.3))",' :: sink position =',xyzsink(1:ndim)
-                   !--make velocities relative to sink particle
-                   if (ivx > 0 .and. ivx+ndimV-1 <= ncolumns) then
-                      vsink(1:ndimV) = dat(isinkpos,ivx:ivx+ndimV-1,j)
-                      if (iverbose >= 1) print "(a,3(1x,es10.3))",' :: sink velocity =',vsink(1:ndimV)
-                   else
-                      vsink = 0.
-                   endif
-                   call shift_particles(dat(:,:,j),ntot,ndim,ndimV,ncolumns,xyzsink,vsink)
-                endif
+                call centre_on_particle(isinkpos,dat(:,:,j),ntot,ndim,ndimV,ncolumns,dontCentreVelocity,iverbose,label='sink')
              enddo
           endif
        else
@@ -178,6 +169,41 @@ subroutine adjust_data_codeunits
                           '        corresponding to sink particles'
        endif
     endif
+    !
+    !--center on a particular particle
+    !
+    call get_environment_or_flag('SPLASH_ORIGIN',string)
+    iorigin = ienvstring(string) ! first try to read the string as an integer
+
+    if (iorigin > 0 .or. (len_trim(string) > 0) .and. all(ix(1:ndim) > 0) .and. ndim > 0) then
+       if (track_string(1:1) /= '0' .and. len_trim(track_string) > 0) then
+          print "(/,a,/)",' ERROR: cannot use --track and --origin at the same time, disabling particle tracking'
+          track_string = '0'
+       endif
+       if (centreonsink)  then
+          print "(/,a,/)",' ERROR: cannot use --sink and --origin at the same time'
+       else
+          do j=1,nstepsinfile(ifileopen)
+             !
+             !--handle strings like --origin=maxdens to locate the particle for the origin
+             !
+             ntot = sum(npartoftype(:,j))
+             if (len_trim(string) > 0 .and. iorigin==0) then
+                iorigin = locate_particle_from_string(string,ntot,dat(:,:,j),irho)
+                if (iorigin <= 0) exit ! quit loop over steps
+             endif
+             if (j==1 .or. ienvstring(string) == 0) then
+                print "(a,i0,a)",' :: CENTREING ON PARTICLE ',iorigin,' from --origin='//trim(string)//' flag'
+                if (dontCentreVelocity) print "(a)",' :: NOT CENTREING VELOCITY'
+             endif
+             !
+             !--now centre on the chosen particle
+             !
+             call centre_on_particle(iorigin,dat(:,:,j),ntot,ndim,ndimV,ncolumns,dontCentreVelocity,iverbose,label='')
+          enddo
+       endif
+    endif
+
     !
     !--environment variable setting to subtract a mean velocity
     !
@@ -280,12 +306,48 @@ pure subroutine rotate_particles(dat,np,dphi,domega,x0,ndim,ndimV,v0)
 end subroutine rotate_particles
 
 !------------------------------------------------------
+! routine to centre particle positions and velocities
+! on a particle location
+!------------------------------------------------------
+subroutine centre_on_particle(ipart,dat,np,ndim,ndimV,ncol,dontCentreVelocity,iverbose,label)
+ use labels, only:ix,ivx
+ integer, intent(in) :: ipart,np,ndim,ndimV,ncol,iverbose
+ logical, intent(in) :: dontCentreVelocity
+ real, dimension(:,:), intent(inout) :: dat
+ real, dimension(ndim)  :: x0
+ real, dimension(ndimV) :: v0
+ character(len=*), intent(in) :: label
+
+ !--sanity check inputs
+ if (ipart <= 0) then
+    print "(a)",' ERROR: could not locate '//trim(label)//' particle in dat array'
+    return
+ endif
+ if (ipart > np .or.  ipart > size(dat(:,1))) then
+    print "(/,a,/)",' ERROR: '//trim(label)//' particle number exceeds number of particles'
+    return ! skip if iorigin > npart
+ endif
+ !--make positions relative to chosen particle
+ x0(1:ndim) = dat(ipart,ix(1:ndim))
+ if (iverbose >= 1) print "(a,3(1x,es10.3))",' :: '//trim(label)//' position =',x0(1:ndim)
+ !--make velocities relative to origin particle
+ if ((ivx > 0 .and. ivx+ndimV-1 <= ncol) .and. (.not. dontCentreVelocity)) then
+    v0(1:ndimV) = dat(ipart,ivx:ivx+ndimV-1)
+    if (iverbose >= 1) print "(a,3(1x,es10.3))",' :: '//trim(label)//' velocity =',v0(1:ndimV)
+ else
+    v0 = 0.
+ endif
+ call shift_particles(dat(:,:),np,ndim,ndimV,ncol,x0,v0)
+
+end subroutine centre_on_particle
+
+!------------------------------------------------------
 ! routine to shift particle positions and velocities
 ! to new location
 !------------------------------------------------------
 pure subroutine shift_particles(dat,np,ndim,ndimV,ncol,x0,v0)
  integer, intent(in) :: np,ndim,ndimV,ncol
- real,    dimension(:,:), intent(inout) :: dat
+ real, dimension(:,:), intent(inout) :: dat
  real, dimension(ndim),  intent(in) :: x0
  real, dimension(ndimV), intent(in) :: v0
 
