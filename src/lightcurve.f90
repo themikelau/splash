@@ -46,7 +46,7 @@ contains
 ! Used to generate synthetic lightcurves
 !---------------------------------------------------------
 subroutine get_lightcurve(ncolumns,dat,npartoftype,masstype,itype,ndim,ntypes,&
-                          lum,rphoto,temp,lum_bb,r_bb,Tc,badfrac,specfile,ierr)
+                          lum,rphoto,temp,lum_bb,r_bb,Tc,badfrac,badlum,specfile,ierr)
  use labels,                only:ix,ih,irho,ipmass,itemp,ikappa,ivx,ipmomx
  use limits,                only:lim,get_particle_subset
  use lightcurve_utils,      only:get_temp_from_u
@@ -72,7 +72,7 @@ subroutine get_lightcurve(ncolumns,dat,npartoftype,masstype,itype,ndim,ntypes,&
  integer(kind=int1), intent(in) :: itype(:)
  real,    intent(in)  :: masstype(:)
  real,    intent(in)  :: dat(:,:)
- real,    intent(out) :: lum,rphoto,temp,lum_bb,r_bb,Tc,badfrac
+ real,    intent(out) :: lum,rphoto,temp,lum_bb,r_bb,Tc,badfrac,badlum
  integer, intent(out) :: ierr
  character(len=*), intent(in) :: specfile
  integer :: n,isinktype,npixx,npixy,j,i,k,nfreq
@@ -231,6 +231,7 @@ subroutine get_lightcurve(ncolumns,dat,npartoftype,masstype,itype,ndim,ntypes,&
  enddo
 
  lum = 4.*sum(img)*dx*dy
+ badlum = sum(img*badpix)*4.*dx*dy  ! luminosity from bad pixels
 
  ! luminosity is integrated flux
  print "(/,a,2(es10.3,a))",' L_bol = ',lum,' erg/s = ',lum/Lsun,' L_sun'
@@ -241,6 +242,8 @@ subroutine get_lightcurve(ncolumns,dat,npartoftype,masstype,itype,ndim,ntypes,&
  if (area > 0.) badfrac = badarea/area
  print "(a,1pg10.3,a)",' emitting area = ',area/au**2,' au^2 (pixels where dtau > 1/3)'
  print "(a,1pg10.3,a,2pf6.2,a)",' unresolved area = ',badarea/au**2,' au^2 (',badfrac,'%)'
+ print "(2(a,es10.3),a,f6.2,a)",' luminosity from bad pixels = ',badlum,' erg/s = ',badlum/Lsun,&
+                                  ' L_sun (',badlum/lum*100.,'% of total)'
  if (badarea/area > 0.05) print "(/,1x,a,2pf6.2,a)",'WARNING: ',badfrac,'% of photosphere is UNRESOLVED!'
 
  print "(/,a,1pg10.3,a)",' Tmax  = ',(maxval(img)/steboltz)**0.25,' K'

@@ -1018,7 +1018,7 @@ subroutine identify_calculated_quantity(labelcol,ncolumns,icolumn)
     call assign_column(ipr,icolumn,ncolumns,debugmode,'pressure')
  case('kappa','opacity')
     call assign_column(ikappa,icolumn,ncolumns,debugmode,'opacity')
- case('temperature','temp')
+ case('temperature','temp','tgas')
     call assign_column(itemp,icolumn,ncolumns,debugmode,'temperature')
  end select
 
